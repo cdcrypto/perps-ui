@@ -1,8 +1,6 @@
-import { getAllUserData } from "@/hooks/storeHelpers/fetchUserData";
-import { CustodyAccount } from "@/lib/CustodyAccount";
-import { getTokenLabel, TokenE } from "@/lib/Token";
-import { useGlobalStore } from "@/stores/store";
+import { getTokenELabel, tokenAddressToTokenE } from "@/utils/TokenUtils";
 import { DEFAULT_PERPS_USER } from "@/utils/constants";
+import { manualSendTransaction } from "@/utils/manualTransaction";
 import { checkIfAccountExists } from "@/utils/retrieveData";
 import {
   createAssociatedTokenAccountInstruction,
@@ -10,24 +8,23 @@ import {
   getAssociatedTokenAddress,
 } from "@solana/spl-token";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
-import { Transaction } from "@solana/web3.js";
+import { PublicKey, Transaction } from "@solana/web3.js";
+
 import { SolidButton } from "./SolidButton";
 
 interface Props {
   className?: string;
-  custody: CustodyAccount;
+  mint: string;
 }
 export default function AirdropButton(props: Props) {
   const { publicKey, signTransaction } = useWallet();
   const { connection } = useConnection();
 
-  let mint = props.custody.mint;
+  let mint = new PublicKey(props.mint);
 
-  const poolData = useGlobalStore((state) => state.poolData);
-  const setUserData = useGlobalStore((state) => state.setUserData);
+
 
   async function handleAirdrop() {
-    if (!publicKey) return;
     if (mint.toString() === "So11111111111111111111111111111111111111112") {
       await connection.requestAirdrop(publicKey!, 1 * 10 ** 9);
     } else {
@@ -56,45 +53,15 @@ export default function AirdropButton(props: Props) {
         )
       );
 
-      transaction.feePayer = publicKey;
-      transaction.recentBlockhash = (
-        await connection.getRecentBlockhash("finalized")
-      ).blockhash;
-
-      transaction.sign(DEFAULT_PERPS_USER);
-
-      transaction = await signTransaction(transaction);
-      const rawTransaction = transaction.serialize();
-      let signature = await connection.sendRawTransaction(rawTransaction, {
-        skipPreflight: false,
-      });
-      console.log(
-        `sent raw, waiting : https://explorer.solana.com/tx/${signature}?cluster=devnet`
-      );
-      await connection.confirmTransaction(signature, "confirmed");
-      console.log(
-        `sent tx!!! :https://explorer.solana.com/tx/${signature}?cluster=devnet`
+      await manualSendTransaction(
+        transaction,
+        publicKey,
+        connection,
+        signTransaction,
+        DEFAULT_PERPS_USER
       );
     }
 
-    const userData = await getAllUserData(connection, publicKey!, poolData);
-    setUserData(userData);
-  }
-
-  if (props.custody.getTokenE() === TokenE.USDC) {
-    return (
-      <a
-        target="_blank"
-        rel="noreferrer"
-        href={"https://spl-token-faucet.com/?token-name=USDC-Dev"}
-      >
-        <SolidButton className="my-6 w-full bg-slate-500 hover:bg-slate-200">
-          Airdrop {'"'}
-          {getTokenLabel(props.custody.getTokenE())}
-          {'"'}
-        </SolidButton>
-      </a>
-    );
   }
 
   return (
@@ -103,7 +70,7 @@ export default function AirdropButton(props: Props) {
       onClick={handleAirdrop}
     >
       Airdrop {'"'}
-      {getTokenLabel(props.custody.getTokenE())}
+      {getTokenELabel(tokenAddressToTokenE(props.mint))}
       {'"'}
     </SolidButton>
   );

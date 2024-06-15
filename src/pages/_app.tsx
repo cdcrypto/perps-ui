@@ -1,4 +1,5 @@
 import "@/styles/globals.css";
+import React, { ReactNode } from "react";
 import { WalletAdapterNetwork } from "@solana/wallet-adapter-base";
 import {
   ConnectionProvider,
@@ -6,36 +7,27 @@ import {
 } from "@solana/wallet-adapter-react";
 import { WalletModalProvider } from "@solana/wallet-adapter-react-ui";
 import {
-  BackpackWalletAdapter,
-  BraveWalletAdapter,
-  CloverWalletAdapter,
-  CoinbaseWalletAdapter,
-  ExodusWalletAdapter,
-  GlowWalletAdapter,
-  HuobiWalletAdapter,
   LedgerWalletAdapter,
   PhantomWalletAdapter,
   SlopeWalletAdapter,
-  SolletWalletAdapter,
-  SolongWalletAdapter,
   TorusWalletAdapter,
-  TrustWalletAdapter,
 } from "@solana/wallet-adapter-wallets";
-import { clusterApiUrl } from "@solana/web3.js";
 import { AppProps } from "next/app";
-import React, { FC, ReactNode, useMemo } from "react";
-import { ToastContainer } from "react-toastify";
-import "react-toastify/dist/ReactToastify.css";
+import { FC, useMemo } from "react";
+
+import 'react-toastify/dist/ReactToastify.css';
+import { ToastContainer } from 'react-toastify';
 
 require("@solana/wallet-adapter-react-ui/styles.css");
 
 import { Navbar } from "@/components/Navbar";
 import { useHydrateStore } from "@/hooks/useHydrateStore";
+import { CLUSTER, RPC_URL } from "@/utils/constants";
 
 const StoreUpdater = () => {
-  useHydrateStore();
-  return null;
-};
+  useHydrateStore()
+  return null
+}
 
 export default function MyApp({ Component, pageProps }: AppProps) {
   return (
@@ -60,8 +52,8 @@ export default function MyApp({ Component, pageProps }: AppProps) {
 
 const Context: FC<{ children: ReactNode }> = ({ children }) => {
   // Can be set to 'devnet', 'testnet', or 'mainnet-beta'
-  const network = WalletAdapterNetwork.Devnet;
-  const endpoint = useMemo(() => clusterApiUrl(network), [network]);
+  // const network = WalletAdapterNetwork.Devnet;
+  const endpoint = useMemo(() => RPC_URL, [CLUSTER]);
   // const endpoint = useMemo(() => "http://localhost:8899");
 
   const wallets = useMemo(
@@ -70,18 +62,8 @@ const Context: FC<{ children: ReactNode }> = ({ children }) => {
       new SlopeWalletAdapter(),
       new TorusWalletAdapter(),
       new LedgerWalletAdapter(),
-      new BackpackWalletAdapter(),
-      new BraveWalletAdapter(),
-      new CloverWalletAdapter(),
-      new CoinbaseWalletAdapter(),
-      new ExodusWalletAdapter(),
-      new GlowWalletAdapter(),
-      new HuobiWalletAdapter(),
-      new SolletWalletAdapter(),
-      new SolongWalletAdapter(),
-      new TrustWalletAdapter(),
     ],
-    []
+    [CLUSTER]
   );
 
   return (

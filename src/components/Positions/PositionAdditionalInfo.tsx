@@ -1,59 +1,60 @@
-import { CollateralModal } from "@/components/Positions/CollateralModal";
-import { PositionValueDelta } from "@/components/Positions/PositionValueDelta";
-import { SolidButton } from "@/components/SolidButton";
-import { getPositionData } from "@/hooks/storeHelpers/fetchPositions";
-import { getAllUserData } from "@/hooks/storeHelpers/fetchUserData";
-import { PositionAccount } from "@/lib/PositionAccount";
-import { Side } from "@/lib/types";
-import { useGlobalStore } from "@/stores/store";
-import { formatPrice } from "@/utils/formatters";
 import CloseIcon from "@carbon/icons-react/lib/Close";
 import EditIcon from "@carbon/icons-react/lib/Edit";
 import { BN } from "@project-serum/anchor";
 import { useConnection, useWallet } from "@solana/wallet-adapter-react";
+import { format } from "date-fns";
 import { closePosition } from "src/actions/closePosition";
 import { twMerge } from "tailwind-merge";
+import { PositionValueDelta } from "./PositionValueDelta";
+import { SolidButton } from "../SolidButton";
+import { usePositions } from "@/hooks/usePositions";
+import { PositionAccount } from "@/lib/PositionAccount";
+import { asTokenE } from "@/utils/TokenUtils";
+import { usePythPrices } from "@/hooks/usePythPrices";
+import { sleep } from "@/utils/TransactionHandlers";
+import { PRICE_DECIMALS } from "@/utils/constants";
+
+function formatPrice(num: number) {
+  const formatter = new Intl.NumberFormat("en", {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2,
+  });
+  return formatter.format(num);
+}
 
 interface Props {
   className?: string;
   position: PositionAccount;
-  pnl: number;
-  liqPrice: number;
 }
 
 export function PositionAdditionalInfo(props: Props) {
-  const walletContextState = useWallet();
-  const { publicKey } = useWallet();
-
+  const { publicKey, signTransaction, wallet } = useWallet();
   const { connection } = useConnection();
-  const stats = useGlobalStore((state) => state.priceStats);
+  const { prices } = usePythPrices()
 
-  const poolData = useGlobalStore((state) => state.poolData);
-  const custodyData = useGlobalStore((state) => state.custodyData);
-
-  const setPositionData = useGlobalStore((state) => state.setPositionData);
-  const setUserData = useGlobalStore((state) => state.setUserData);
-
-  const positionPool = poolData[props.position.pool.toString()]!;
-  const positionCustody = custodyData[props.position.custody.toString()]!;
+  let payToken =  asTokenE(props.position.custodyConfig.symbol);
+  let positionToken =asTokenE(props.position.custodyConfig.symbol);
+  const { fetchPositions } = usePositions();
 
   async function handleCloseTrade() {
+    console.log(">>> in close trade");
     await closePosition(
-      walletContextState,
+      wallet!,
+      publicKey,
+      signTransaction,
       connection,
-      positionPool,
-      props.position,
-      positionCustody,
-      new BN(stats[props.position.token].currentPrice * 10 ** 6)
+      payToken,
+      positionToken,
+      props.position.publicKey.toBase58(),
+      props.position.side,
+      new BN((prices.get(payToken) ?? 0) * 10 ** PRICE_DECIMALS)
     );
-
-    const positionInfos = await getPositionData(custodyData);
-    setPositionData(positionInfos);
-    const userData = await getAllUserData(connection, publicKey, poolData);
-    setUserData(userData);
+    // fetch and add to store
+    console.log("sleep 5sec")
+    await sleep(5000);
+    console.log("after sleep calling fetchPositions")
+    fetchPositions();
   }
-
-  if (Object.values(stats).length === 0) return <p>sdf</p>;
 
   return (
     <div
@@ -84,49 +85,41 @@ export function PositionAdditionalInfo(props: Props) {
         <div>
           <div className="text-xs text-zinc-500">Time</div>
           <div className="mt-1 text-sm text-white">
-            {props.position.getTimestamp()}
+            {format(props.position.openTime.toNumber(), "d MMM yyyy • p")}
           </div>
         </div>
         <div>
           <div className="text-xs text-zinc-500">PnL</div>
           <PositionValueDelta
             className="mt-0.5"
-            valueDelta={props.pnl}
-            valueDeltaPercentage={
-              (props.pnl * 100) / props.position.getCollateralUsd()
-            }
+            valueDelta={props.position.pnlUsd.toNumber()/ 10**6}
+            valueDeltaPercentage={ (1 - (props.position.collateralUsd.toNumber() / props.position.collateralUsd.toNumber()))*100 }
+            formatValueDelta={formatPrice}
           />
         </div>
         <div>
           <div className="text-xs text-zinc-500">Size</div>
           <div className="mt-1 flex items-center">
             <div className="text-sm text-white">
-              ${formatPrice(props.position.getSizeUsd())}
+              ${formatPrice(props.position.sizeUsd.toNumber()/ 10**6 )}
             </div>
-            <CollateralModal position={props.position} pnl={props.pnl}>
-              <button className="group ml-2">
-                <EditIcon
-                  className={twMerge(
-                    "fill-zinc-500",
-                    "h-4",
-                    "transition-colors",
-                    "w-4",
-                    "group-hover:fill-white"
-                  )}
-                />
-              </button>
-            </CollateralModal>
+            <button className="group ml-2">
+              <EditIcon
+                className={twMerge(
+                  "fill-zinc-500",
+                  "h-4",
+                  "transition-colors",
+                  "w-4",
+                  "group-hover:fill-white"
+                )}
+              />
+            </button>
           </div>
         </div>
         <div>
           <div className="text-xs text-zinc-500">Liq. Threshold</div>
           <div className="mt-1 text-sm text-white">
-            $
-            {formatPrice(
-              props.position.side === Side.Long
-                ? stats[props.position.token].currentPrice - props.liqPrice
-                : props.liqPrice - stats[props.position.token].currentPrice
-            )}
+            ${formatPrice(props.position.liquidationPriceUsd.toNumber() / 10**6)}
           </div>
         </div>
       </div>

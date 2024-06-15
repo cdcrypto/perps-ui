@@ -1,6 +1,14 @@
-import CloseIcon from "@carbon/icons-react/lib/Close";
 import * as Slider from "@radix-ui/react-slider";
 import { twMerge } from "tailwind-merge";
+import CloseIcon from "@carbon/icons-react/lib/Close";
+
+function formatNumber(num: number) {
+  const formatter = Intl.NumberFormat("en", {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 0,
+  });
+  return formatter.format(num);
+}
 
 function clamp(num: number, min: number, max: number) {
   return Math.min(max, Math.max(num, min));
@@ -9,8 +17,6 @@ function clamp(num: number, min: number, max: number) {
 interface Props {
   className?: string;
   value: number;
-  minLeverage: number;
-  maxLeverage: number;
   onChange?(value: number): void;
 }
 
@@ -28,9 +34,9 @@ export function LeverageSlider(props: Props) {
       <div className="pl-6 pr-3 text-sm text-zinc-400">1x</div>
       <div>
         <Slider.Root
-          min={props.minLeverage}
-          max={props.maxLeverage}
-          step={0.1}
+          min={1}
+          max={10}
+          step={0.01}
           value={[props.value]}
           onValueChange={(values) => props.onChange?.(values[0] || 1)}
         >
@@ -55,9 +61,7 @@ export function LeverageSlider(props: Props) {
           </Slider.Track>
         </Slider.Root>
       </div>
-      <div className="pl-3 pr-6 text-sm text-zinc-400">
-        {props.maxLeverage}x
-      </div>
+      <div className="pl-3 pr-6 text-sm text-zinc-400">10x</div>
       <div
         className={twMerge(
           "bg-zinc-900",
@@ -73,20 +77,21 @@ export function LeverageSlider(props: Props) {
         <input
           className="w-full bg-transparent text-center text-sm text-white"
           type="number"
-          value={props.value}
+          value={formatNumber(props.value)}
           onChange={(e) => {
             const text = e.currentTarget.value;
             const number = parseFloat(text);
-            props.onChange?.(
-              Number.isNaN(number) ? 0 : clamp(number, 1, props.maxLeverage)
-            );
+            // in order to allow the user to input numbers between 1 and 10, we
+            // set the value to 0 instead of 1 when the user clears the input
+            props.onChange?.(Number.isNaN(number) ? 0 : clamp(number, 1, 50));
           }}
           onBlur={(e) => {
             const text = e.currentTarget.value;
             const number = parseFloat(text);
-            props.onChange?.(
-              Number.isNaN(number) ? 1 : clamp(number, 1, props.maxLeverage)
-            );
+            // when the user blurs, in contrast to when the user is typing, we
+            // reset the value to 1 since we want to ensure this selector
+            // only produces valid values
+            props.onChange?.(Number.isNaN(number) ? 1 : clamp(number, 1, 50));
           }}
         />
         <button onClick={() => props.onChange?.(1)}>

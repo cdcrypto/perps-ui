@@ -1,6 +1,10 @@
-import { LoadingSpinner } from "@/components/Icons/LoadingSpinner";
+import { useWallet } from "@solana/wallet-adapter-react";
 import { forwardRef, useState } from "react";
 import { twMerge } from "tailwind-merge";
+import { LoadingSpinner } from "./Icons/LoadingSpinner";
+
+import { LoadingDots } from "./LoadingDots";
+import { notify } from "./Notify";
 
 interface Props extends React.ButtonHTMLAttributes<HTMLButtonElement> {
   pending?: boolean;
@@ -10,16 +14,21 @@ export const SolidButton = forwardRef<HTMLButtonElement, Props>(
   function SolidButton(props, ref) {
     const { ...rest } = props;
     const [loading, setLoading] = useState(false);
+    const { publicKey } = useWallet()
 
-    const handleClick = async (e: any) => {
-      setLoading(true);
-      try {
-        await rest.onClick?.(e);
-      } catch (error) {
-        console.error("ButtonWithLoading onClick error:", error);
+    const handleClick = async (e) => {
+      if (!publicKey) {
+          notify('Connect Wallet', 'warn')
+          return
       }
-      setLoading(false);
-    };
+      setLoading(true)
+      try {
+          await rest.onClick?.(e);
+      } catch (error) {
+          console.error("ButtonWithLoading onClick error:", error)
+      }
+      setLoading(false)
+  }
 
     return (
       <button
@@ -46,7 +55,11 @@ export const SolidButton = forwardRef<HTMLButtonElement, Props>(
           loading && "cursor-not-allowed"
         )}
         onClick={(e) => {
-          handleClick(e);
+
+          handleClick(e)
+          // if (!loading && !rest.disabled) {
+          //   rest.onClick?.(e);
+          // }
         }}
       >
         <div
@@ -61,9 +74,12 @@ export const SolidButton = forwardRef<HTMLButtonElement, Props>(
             loading ? "opacity-0" : "opacity-100"
           )}
         >
+         
           {rest.children}
         </div>
-        {loading && <LoadingSpinner className="absolute text-4xl" />}
+        {loading && (
+          <LoadingSpinner className="absolute text-4xl"/>
+        )}
       </button>
     );
   }

@@ -1,50 +1,83 @@
-import { PositionRequest } from "@/hooks/storeHelpers/fetchPositions";
-import { CustodyAccount } from "@/lib/CustodyAccount";
-import { PoolAccount } from "@/lib/PoolAccount";
-import { Custody, PriceStats } from "@/lib/types";
-import { UserAccount } from "@/lib/UserAccount";
+import { Custody, Pool, Position } from "@/types/index";
+import { BN } from "@project-serum/anchor";
+import { Mint } from "@solana/spl-token";
 import { create } from "zustand";
 import { devtools } from "zustand/middleware";
 
 interface StoreState {
-  positionData: PositionRequest;
-  setPositionData: (position: PositionRequest) => void;
+  // positions: Map<string, Position>;
+  // setPositions: (positions: Map<string, Position>) => void;
+  // addPosition: (positionPk: string, position: Position) => void;
+  // removePosition: (positionPk: string) => void;
 
-  poolData: Record<string, PoolAccount>;
-  setPoolData: (pool: Record<string, PoolAccount>) => void;
 
-  custodyData: Record<string, CustodyAccount>;
-  setCustodyData: (custody: Record<string, CustodyAccount>) => void;
+  userLpTokensBalance: BN;
+  setUserLpTokensBalance: (lpTokens: BN) => void;
 
-  userData: UserAccount;
-  setUserData: (user: UserAccount) => void;
+  pool?: Pool;
+  setPool: (pool: Pool) => void
+  lpMintData?: any;
+  setLpMintData: (mint: any) => void 
 
-  priceStats: PriceStats;
-  setPriceStats: (stats: PriceStats) => void;
+  custodies: Map<string, Custody>;
+  setCustodies: (custodies: Map<string, Custody>) => void;
+  addCustody: (custodyPk: string, custody: Custody) => void;
+
+  // simple inputs
+  inputTokenAmt: number;
+  setInputTokenAmt: (amt: number) => void;
+  inputLPTokenAmt: number;
+  setInputLPTokenAmt: (amt: number) => void;
 }
 
 export const useGlobalStore = create<StoreState>()(
-  devtools((set, get) => ({
+  devtools((set, _get) => ({
     devtools: false,
+    // positions: new Map<string, Position>(),
+    // setPositions: (positions: Map<string, Position>) => set({ positions }),
+    // addPosition: (positionPk: string, position: Position) => set((state) => {
+    //   const positions = new Map<string, Position>(state.positions);
+    //   positions.set(positionPk, position)
+    //   return { positions: positions }
+    // }),
+    // removePosition: (positionPk: string) => set((state) => {
+    //   let positions = new Map<string, Position>(state.positions);
+    //   positions.delete(positionPk)
+    //   return { positions: positions }
+    // }),
+    
+    userLpTokensBalance: new BN(0),
+    setUserLpTokensBalance: (lpTokens : BN) => set({ userLpTokensBalance: lpTokens }),
 
-    positionData: {
-      status: "pending",
-    },
-    setPositionData: (position: PositionRequest) =>
-      set({ positionData: position }),
+    pool: undefined,
+    setPool: (pool: Pool) => set({ pool: pool }),
+   
+    lpMintData: undefined,
+    setLpMintData: (lpMintData: any) => set({ lpMintData }),
 
-    poolData: {},
-    setPoolData: (poolObjs: Record<string, PoolAccount>) =>
-      set({ poolData: poolObjs }),
+    custodies: new Map<string, Custody>(),
+    setCustodies: (custodies: Map<string, Custody>) => set({ custodies }),
+    addCustody: (custodyPk: string, custody: Custody) => set((state) => {
+      const custodies = new Map<string, Custody>(state.custodies);
+      custodies.set(custodyPk, custody)
+      return { custodies: custodies }
+    }),
 
-    custodyData: {},
-    setCustodyData: (custody: Record<string, CustodyAccount>) =>
-      set({ custodyData: custody }),
-
-    userData: new UserAccount(),
-    setUserData: (user: UserAccount) => set({ userData: user }),
-
-    priceStats: {},
-    setPriceStats: (stats: PriceStats) => set({ priceStats: stats }),
-  }))
+    inputTokenAmt: 1,
+    setInputTokenAmt: (amt : number) => set({ inputTokenAmt: amt }),
+    inputLPTokenAmt: 1,
+    setInputLPTokenAmt: (amt : number) => set({ inputLPTokenAmt: amt }),
+    
+  }),
+    {
+      serialize: {
+        options: {
+          map: true,
+          set : true,
+          function : true,
+          date : true
+        }
+      } as any
+    }
+  )
 );

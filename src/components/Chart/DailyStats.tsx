@@ -1,7 +1,16 @@
-import { TokenE } from "@/lib/Token";
-import { useGlobalStore } from "@/stores/store";
-import { formatNumberCommas } from "@/utils/formatters";
 import { twMerge } from "tailwind-merge";
+
+import { useDailyPriceStats } from "@/hooks/useDailyPriceStats";
+import { TokenE } from "@/utils/TokenUtils";
+import { usePythPrices } from "@/hooks/usePythPrices";
+
+function formatNumber(number: number) {
+  const formatter = Intl.NumberFormat("en", {
+    maximumFractionDigits: 4,
+    minimumFractionDigits: 0,
+  });
+  return formatter.format(number);
+}
 
 interface DailyStatsProps {
   className?: string;
@@ -9,9 +18,8 @@ interface DailyStatsProps {
 }
 
 export function DailyStats(props: DailyStatsProps) {
-  const stats = useGlobalStore((state) => state.priceStats);
-
-  if (Object.values(stats).length === 0) return <p>sdf</p>;
+  const stats = useDailyPriceStats(props.token);
+  const {prices} = usePythPrices()
 
   return (
     <div
@@ -19,22 +27,28 @@ export function DailyStats(props: DailyStatsProps) {
     >
       <div>
         <div className="text-xs text-zinc-500">Current Price</div>
-        <div className="text-sm text-white">
-          ${formatNumberCommas(stats[props.token].currentPrice)}
-        </div>
+        <div className="text-sm text-white">${prices.get(props.token)?.toFixed(4)}</div>
       </div>
       <div>
         <div className="text-xs text-zinc-500">24h Change</div>
         <div
           className={twMerge(
             "text-sm",
-            stats[props.token].change24hr < 0 && "text-rose-400",
-            stats[props.token].change24hr === 0 && "text-white",
-            stats[props.token].change24hr > 0 && "text-emerald-400"
+            stats.change24hr < 0 && "text-rose-400",
+            stats.change24hr === 0 && "text-white",
+            stats.change24hr > 0 && "text-emerald-400"
           )}
         >
-          ${formatNumberCommas(stats[props.token].change24hr)}
+          {formatNumber(stats.change24hr)}
         </div>
+      </div>
+      <div>
+        <div className="text-xs text-zinc-500">24h High</div>
+        <div className="text-sm text-white">{formatNumber(stats.high24hr)}</div>
+      </div>
+      <div>
+        <div className="text-xs text-zinc-500">24h Low</div>
+        <div className="text-sm text-white">{formatNumber(stats.low24hr)}</div>
       </div>
     </div>
   );

@@ -1,175 +1,161 @@
-import { PriceStats } from "@/hooks/storeHelpers/fetchPrices";
-import { CustodyAccount } from "@/lib/CustodyAccount";
-import { TokenE } from "@/lib/Token";
-import { AccountMeta, Pool, TokenRatios } from "@/lib/types";
-import { PERPETUALS_PROGRAM_ID } from "@/utils/constants";
+import { defaultData } from "@/hooks/usePoolData";
+import { PERCENTAGE_DECIMALS, PRICE_DECIMALS } from "@/utils/constants";
+import { toUiDecimals } from "@/utils/displayUtils";
+import { PoolConfig } from "@/utils/PoolConfig";
 import { BN } from "@project-serum/anchor";
-import { findProgramAddressSync } from "@project-serum/anchor/dist/cjs/utils/pubkey";
-import { Mint } from "@solana/spl-token";
-import { PublicKey } from "@solana/web3.js";
+import {  Mint } from "@solana/spl-token";
+import { Custody, Pool, Token } from "../types";
+import { CustodyAccount } from "./CustodyAccount";
 
 export class PoolAccount {
-  public name: string;
-  public custodies: Record<string, CustodyAccount>;
-  public ratios: Record<string, TokenRatios>;
-  // public tokens: Token[];
-  public aumUsd: BN;
-  public bump: number;
-  public lpTokenBump: number;
-  public inceptionTime: BN;
 
-  // public lpDecimals: number = 8;
-  public address: PublicKey;
-  public lpData: Mint;
-
-  constructor(
-    pool: Pool,
-    custodyData: Record<string, CustodyAccount>,
-    address: PublicKey,
-    lpData: Mint
-  ) {
-    this.name = pool.name;
-    this.aumUsd = pool.aumUsd;
-    this.bump = pool.bump;
-    this.lpTokenBump = pool.lpTokenBump;
-    this.inceptionTime = pool.inceptionTime;
-
-    let tempCustodies: Record<string, CustodyAccount> = {};
-    pool.custodies.forEach((custody: PublicKey) => {
-      tempCustodies[custody.toString()] = custodyData[custody.toString()]!;
-    });
-
-    let tempRatios: Record<string, TokenRatios> = {};
-    pool.ratios.forEach((ratio: TokenRatios, index: number) => {
-      tempRatios[pool.custodies[index].toString()] = ratio;
-    });
-
-    this.custodies = tempCustodies;
-    this.ratios = tempRatios;
-
-    this.address = address;
-    this.lpData = lpData;
+  public poolConfig: PoolConfig;
+  public poolData : Pool;
+  public lpTokenInfo : Mint;
+  public custodies : CustodyAccount[];
+  public totalPoolValueUsd : BN;
+  
+  constructor(poolConfig: PoolConfig, poolData : Pool, lpTokenInfo : Mint, custodies : CustodyAccount[]) {
+   this.poolConfig = poolConfig;
+   this.poolData = poolData;
+   this.lpTokenInfo = lpTokenInfo;
+   this.custodies = custodies;
+   this.totalPoolValueUsd = new BN(-1); // -1 meaning unset
   }
 
-  getRatioStruct(publicKey: PublicKey): TokenRatios {
-    return this.ratios[publicKey.toString()]
-      ? this.ratios[publicKey.toString()]
-      : { target: new BN(1), min: new BN(1), max: new BN(1) };
-    // find the indexin
+  loadCustodies(custodies : CustodyAccount[]){
+    this.custodies = custodies;
   }
 
-  getCustodyAccount(token: TokenE): CustodyAccount | null {
-    return (
-      Object.values(this.custodies).find(
-        (custody) => custody.getTokenE() === token
-      ) ?? null
-    );
+  loadPoolData(poolData : Pool){
+    this.poolData = poolData
   }
 
-  getPoolAddress(): PublicKey {
-    return findProgramAddressSync(
-      [Buffer.from("pool"), Buffer.from(this.name)],
-      PERPETUALS_PROGRAM_ID
-    )[0];
+  loadlpData(lpTokenInfo : Mint){
+    this.lpTokenInfo = lpTokenInfo
   }
 
-  getLpTokenMint(): PublicKey {
-    return findProgramAddressSync(
-      [Buffer.from("lp_token_mint"), this.getPoolAddress().toBuffer()],
-      PERPETUALS_PROGRAM_ID
-    )[0];
+   getLpStats(prices : any){
+
+     let stableCoinAmount = new BN(0);
+     let totalPoolValueUsd = new BN(0);
+
+    for (const custody of this.poolConfig.custodies) {
+      const custodyData = this.custodies.find(t => t.mint.toBase58() === custody.mintKey.toBase58())
+      // console.log("custodyData:",custodyData)
+      if(custodyData){
+        if (custodyData.isStable) {  
+          stableCoinAmount = stableCoinAmount.add(custodyData.assets.owned)
+          // console.log("custodyData.assets.owned.toString():",custodyData.assets.owned.toString())
+        }
+        const priceBN = new BN(prices.get(custody.symbol)* 10**PRICE_DECIMALS); // so always keep prices with 6 decimals 
+        const custodyValue = priceBN.mul(custodyData.assets.owned).div(new BN(10**custody.decimals));
+        totalPoolValueUsd = totalPoolValueUsd.add(custodyValue)
+      }
+    }
+    
+    // console.log("totalPoolValueUsd.toNumber():",totalPoolValueUsd.toString())
+    // console.log("stableCoinAmount.toNumber():",stableCoinAmount.toString())
+
+    if(this.lpTokenInfo.supply.toString() =='0' || totalPoolValueUsd.toString()=='0'){
+      console.error("supply or amt cannot be zero")
+      throw "supply or amt cannot be zero";
+    }
+    this.totalPoolValueUsd = totalPoolValueUsd;
+    const lpPrice = totalPoolValueUsd.div(new BN(this.lpTokenInfo.supply.toString()))
+    
+     return  {
+       lpTokenSupply : new BN(this.lpTokenInfo.supply.toString()),
+       decimals : this.poolConfig.lpDecimals,
+       totalPoolValue : totalPoolValueUsd,
+       price : lpPrice,
+       stableCoinPercentage : stableCoinAmount.mul(new BN(PERCENTAGE_DECIMALS)).div(totalPoolValueUsd),
+       marketCap : lpPrice.mul(new BN(this.lpTokenInfo.supply.toString())),
+      // totalStaked : BN,
+     }
   }
 
-  getTokenList(exclude?: TokenE[]): TokenE[] {
-    return Object.values(this.custodies)
-      .map((custody) => {
-        return custody?.getTokenE();
-      })
-      .filter((token) => {
-        return !exclude || !exclude.includes(token);
-      });
+  getOiLongUI() {
+     let totalAmount = new BN('0');
+     this.custodies.forEach(i => {
+      totalAmount =  totalAmount.add(i.tradeStats.oiLongUsd); 
+     })
+    return totalAmount;
   }
 
-  getCustodyMetas(): AccountMeta[] {
-    let custodyMetas: AccountMeta[] = [];
-
-    Object.keys(this.custodies).forEach((custody) => {
-      custodyMetas.push({
-        pubkey: new PublicKey(custody),
-        isSigner: false,
-        isWritable: true,
-      });
-    });
-
-    Object.values(this.custodies).forEach((custody) => {
-      custodyMetas.push({
-        pubkey: custody.oracle.oracleAccount,
-        isSigner: false,
-        isWritable: true,
-      });
-    });
-
-    return custodyMetas;
-  }
-  getLiquidities(stats: PriceStats): number | null {
-    return this.aumUsd.toNumber() / 10 ** 6;
+  getOiShortUI() {
+    let totalAmount = new BN('0');
+    this.custodies.forEach(i => {
+     totalAmount =  totalAmount.add(i.tradeStats.oiShortUsd); 
+     })
+   return totalAmount;
   }
 
-  getTradeVolumes(): number {
-    const totalAmount = Object.values(this.custodies).reduce(
-      (acc: number, tokenCustody: CustodyAccount) => {
-        return (
-          acc +
-          Object.values(tokenCustody.volumeStats).reduce(
-            (acc, val) => Number(acc) + Number(val)
-          )
-        );
-      },
-      0
-    );
+  // handle decimal and this should accept a list of prices probs map or object
+  getCustodyDetails(prices : any) {
+    const custodyDetails = [];
+    for (const custody of this.poolConfig.custodies) {
+      const token = this.poolData.tokens.find(t => t.custody.toBase58() === custody.custodyAccount.toBase58());
+     
+      const custodyData = this.custodies.find(t => t.mint.toBase58() === custody.mintKey.toBase58())
+      const priceBN = new BN(prices.get(custody.symbol)* 10**6); // so always keep prices with 6 decimals 
 
-    return totalAmount / 10 ** 6;
+      if(this.totalPoolValueUsd.toString()=="-1"){
+        console.error("call getLpStats first")
+        throw "call getLpStats first";
+      } 
+
+      if(this.totalPoolValueUsd.toString()=='0'){
+        console.error("call getLpStats first , totalPoolValueUsd ZERO")
+        return defaultData.custodyDetails;
+      } 
+      // console.log("this.totalPoolValueUsd:",this.totalPoolValueUsd.toString())
+
+      if(custodyData && token) {
+        custodyDetails.push({
+          symbol: custody.symbol,
+          price: new BN(prices.get(custody.symbol)),
+          targetWeight: token.targetRatio,
+          currentWeight:  this.totalPoolValueUsd.toNumber() ?
+            (custodyData.assets.owned.mul(priceBN)).mul(new BN(10**PERCENTAGE_DECIMALS)).div(this.totalPoolValueUsd).div(new BN(10**custody.decimals))
+            : '0', 
+          utilization: custodyData.assets.owned.toNumber() ?
+           toUiDecimals(custodyData.assets.locked.mul(new BN(10**PERCENTAGE_DECIMALS)).div(custodyData.assets.owned), PERCENTAGE_DECIMALS, 2)
+           : '0',
+          // assetsAmountUi : (custodyData.assets.owned.toNumber() / 10**(custody.decimals)).toFixed(4),
+          assetsAmountUi :  toUiDecimals(custodyData.assets.owned, custody.decimals,4, true),
+          // totalUsdAmountUi : ((custodyData.assets.owned.mul(priceBN)).div(new BN(10**(custody.decimals))).toNumber() / 10**6).toFixed(4),
+          totalUsdAmountUi : toUiDecimals((custodyData.assets.owned.mul(priceBN)), custody.decimals + PRICE_DECIMALS, 2, true),
+        })
+      }
+    }
+    return custodyDetails;
   }
 
-  getOiLong(): number {
-    const totalAmount = Object.values(this.custodies).reduce(
-      (acc: number, tokenCustody: CustodyAccount) => {
-        return Number(acc) + Number(tokenCustody.tradeStats.oiLongUsd);
-      },
-      0
-    );
+  getPoolStats() {
+    let totalFees = new BN(0)
+    let totalVolume = new BN(0)
+    let currentLongPositionsUsd = new BN(0)
+    let currentShortPositionsUsd = new BN(0)
 
-    return totalAmount / 10 ** 6;
-  }
+    for (const custody of this.poolConfig.custodies) {
+      const custodyData = this.custodies.find(t => t.mint.toBase58() === custody.mintKey.toBase58())
+      if (custodyData) {  
+        const custodyFeeTotal = Object.values(custodyData.collectedFees).reduce((a: BN, b: BN) => a.add(b), new BN(0))
+        totalFees = totalFees.add(custodyFeeTotal)
 
-  getOiShort(): number {
-    const totalAmount = Object.values(this.custodies).reduce(
-      (acc: number, tokenCustody: CustodyAccount) => {
-        return Number(acc) + Number(tokenCustody.tradeStats.oiShortUsd);
-      },
-      0
-    );
+        const custodyVolume = Object.values(custodyData.volumeStats).reduce((a: BN, b: BN) => a.add(b), new BN(0))
+        totalVolume = totalVolume.add(custodyVolume)
 
-    return totalAmount / 10 ** 6;
-  }
-
-  getFees(): number {
-    const totalAmount = Object.values(this.custodies).reduce(
-      (acc: number, tokenCustody: CustodyAccount) => {
-        return (
-          acc +
-          Object.values(tokenCustody.collectedFees).reduce(
-            (acc, val) => Number(acc) + Number(val)
-          )
-        );
-      },
-      0
-    );
-
-    return totalAmount / 10 ** 6;
-  }
-
-  setAum(aum: BN) {
-    this.aumUsd = aum;
+        currentLongPositionsUsd = currentLongPositionsUsd.add(custodyData.tradeStats.oiLongUsd)
+        currentShortPositionsUsd = currentShortPositionsUsd.add(custodyData.tradeStats.oiShortUsd)
+      }
+    }
+    return {
+      totalFees,
+      totalVolume,
+      currentLongPositionsUsd,
+      currentShortPositionsUsd
+    }
   }
 }

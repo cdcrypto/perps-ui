@@ -1,31 +1,35 @@
-import ChevronDownIcon from "@carbon/icons-react/lib/ChevronDown";
-import EditIcon from "@carbon/icons-react/lib/Edit";
-import GrowthIcon from "@carbon/icons-react/lib/Growth";
-import NewTab from "@carbon/icons-react/lib/NewTab";
-import { cloneElement } from "react";
 import { twMerge } from "tailwind-merge";
-
-import { CollateralModal } from "@/components/Positions/CollateralModal";
-import { PositionColumn } from "@/components/Positions/PositionColumn";
-import { PositionAccount } from "@/lib/PositionAccount";
-import { getTokenIcon, getTokenLabel } from "@/lib/Token";
-import { Side } from "@/lib/types";
-import { useGlobalStore } from "@/stores/store";
+import { cloneElement, useEffect } from "react";
+import GrowthIcon from "@carbon/icons-react/lib/Growth";
+import EditIcon from "@carbon/icons-react/lib/Edit";
+import ChevronDownIcon from "@carbon/icons-react/lib/ChevronDown";
 import { ACCOUNT_URL } from "@/utils/TransactionHandlers";
-import { formatNumberCommas } from "@/utils/formatters";
+import NewTab from "@carbon/icons-react/lib/NewTab";
+
+import { getTokenEIcon, getTokenELabel, asTokenE } from "@/utils/TokenUtils";
+import { PositionColumn } from "./PositionColumn";
+import { PositionValueDelta } from "./PositionValueDelta";
+import { isVariant, Side } from "@/types/index";
+import { PositionAccount } from "@/lib/PositionAccount";
+
+function formatPrice(num: number) {
+  const formatter = new Intl.NumberFormat("en", {
+    maximumFractionDigits: 2,
+    minimumFractionDigits: 2,
+  });
+  return formatter.format(num);
+}
 
 interface Props {
   className?: string;
   expanded?: boolean;
   position: PositionAccount;
-  pnl: number;
-  liqPrice: number;
   onClickExpand?(): void;
 }
 
-export default function PositionBasicInfo(props: Props) {
-  const tokenIcon = getTokenIcon(props.position.token);
-  const stats = useGlobalStore((state) => state.priceStats);
+export function PositionInfo(props: Props) {
+  const tokenIcon = getTokenEIcon(props.position.custodyConfig.symbol);
+  
 
   return (
     <div className={twMerge("flex", "items-center", "py-5", props.className)}>
@@ -49,86 +53,92 @@ export default function PositionBasicInfo(props: Props) {
             ),
           })}
           <div className="pr-2">
-            <div className="font-bold text-white">{props.position.token}</div>
+            <div className="font-bold text-white">{props.position.custodyConfig.symbol}</div>
             <div className="mt-0.5 truncate text-sm font-medium text-zinc-500">
-              {getTokenLabel(props.position.token)}
+              {getTokenELabel(asTokenE(props.position.custodyConfig.symbol))}
             </div>
           </div>
         </div>
       </PositionColumn>
       <PositionColumn num={2}>
-        <div className="text-sm text-white">
-          {props.position.getLeverage().toFixed(3)}x
-        </div>
+        <div className="text-sm text-white">{props.position.leverage ?? "1"}x</div>
         <div
           className={twMerge(
             "flex",
             "items-center",
             "mt-1",
             "space-x-1",
-            props.position.side === Side.Long
+            isVariant(props.position.side, 'long')
               ? "text-emerald-400"
               : "text-rose-400"
           )}
         >
-          {props.position.side === Side.Long ? (
-            <GrowthIcon className="h-3 w-3 fill-current" />
-          ) : (
-            <GrowthIcon className="h-3 w-3 -scale-y-100 fill-current" />
-          )}
+          { 
+             isVariant(props.position.side, 'long')
+            ? 
+              <GrowthIcon className="h-3 w-3 fill-current" />
+            
+            : 
+              <GrowthIcon className="h-3 w-3 -scale-y-100 fill-current" />
+        
+          }
           <div className="text-sm">
-            {props.position.side === Side.Long ? "Long" : "Short"}
+            {
+                isVariant(props.position.side, 'long')
+               ? "Long" : "Short"}
           </div>
         </div>
       </PositionColumn>
       <PositionColumn num={3}>
         <div className="text-sm text-white">
-          ${formatNumberCommas(props.position.getNetValue(props.pnl))}
+          ${formatPrice(props.position.sizeUsd.toNumber()/ 10**6)}
         </div>
+        <PositionValueDelta
+          className="mt-0.5"
+          valueDelta={props.position.pnlUsd.toNumber()}
+          valueDeltaPercentage={(1 - (props.position.collateralUsd.toNumber() / props.position.collateralUsd.toNumber()))*100}
+        />
       </PositionColumn>
       <PositionColumn num={4}>
         <div className="flex items-center">
           <div className="text-sm text-white">
-            ${formatNumberCommas(props.position.getCollateralUsd())}
+            ${formatPrice(props.position.collateralUsd.toNumber()/ 10**6)}
           </div>
-          <CollateralModal position={props.position} pnl={props.pnl}>
-            <button className="group ml-2">
-              <EditIcon
-                className={twMerge(
-                  "fill-zinc-500",
-                  "h-4",
-                  "transition-colors",
-                  "w-4",
-                  "group-hover:fill-white"
-                )}
-              />
-            </button>
-          </CollateralModal>
+          <button className="group ml-2">
+            <EditIcon
+              className={twMerge(
+                "fill-zinc-500",
+                "h-4",
+                "transition-colors",
+                "w-4",
+                "group-hover:fill-white"
+              )}
+            />
+          </button>
         </div>
       </PositionColumn>
       <PositionColumn num={5}>
         <div className="text-sm text-white">
-          ${formatNumberCommas(props.position.getPrice())}
+          ${formatPrice(props.position.price.toNumber() / 10**6)}
         </div>
       </PositionColumn>
-      <PositionColumn num={6}>
+      {/* <PositionColumn num={6}>
         <div className="text-sm text-white">
-          $
-          {stats[props.position.token] != undefined
-            ? formatNumberCommas(stats[props.position.token].currentPrice)
-            : 0}
+          ${formatPrice(props.position.markPrice)}
         </div>
-      </PositionColumn>
-      <PositionColumn num={7}>
+      </PositionColumn> */}
+      <PositionColumn num={6}>
         <div className="flex items-center justify-between pr-2">
           <div className="text-sm text-white">
-            ${formatNumberCommas(props.liqPrice)}
+            ${formatPrice(props.position.liquidationPriceUsd.toNumber() / 10**6)}
           </div>
           <div className="flex items-center space-x-2">
             <a
               target="_blank"
               rel="noreferrer"
-              href={`${ACCOUNT_URL(props.position.address.toString())}`}
+              href={`${ACCOUNT_URL(
+                props.position.publicKey.toBase58()
+              )}`}
             >
               <NewTab className="fill-white" />
             </a>

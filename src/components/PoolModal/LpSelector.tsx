@@ -1,13 +1,9 @@
-import { MaxButton } from "@/components/Atoms/MaxButton";
 import { twMerge } from "tailwind-merge";
 
 interface Props {
   className?: string;
-  label?: string;
   amount: number;
   onChangeAmount?(amount: number): void;
-  maxBalance?: number;
-  pendingRateConversion?: boolean;
 }
 
 export const LpSelector = (props: Props) => {
@@ -26,44 +22,34 @@ export const LpSelector = (props: Props) => {
           props.className
         )}
       >
-        <div className="flex items-center space-x-2">
-          <p>{props.label ? props.label : "LP Tokens"}</p>
-
-          <MaxButton
-            maxBalance={props.maxBalance}
-            onChangeAmount={props.onChangeAmount}
-          />
-        </div>
+        LP Tokens
         <div>
-          {props.pendingRateConversion ? (
-            <div className="text-right text-xs text-zinc-500">Loading...</div>
-          ) : (
-            <input
-              className={twMerge(
-                "bg-transparent",
-                "h-full",
-                "text-2xl",
-                "text-right",
-                "text-white",
-                "top-0",
-                "w-full",
-                "focus:outline-none",
-                typeof props.onChangeAmount === "function"
-                  ? "cursor-pointer"
-                  : "cursor-none",
-                typeof props.onChangeAmount === "function"
-                  ? "pointer-events-auto"
-                  : "pointer-events-none"
-              )}
-              placeholder="0"
-              type="number"
-              value={props.amount.toString()}
-              onChange={(e) => {
-                const value = e.currentTarget.valueAsNumber;
-                props.onChangeAmount?.(isNaN(value) ? 0 : value);
-              }}
-            />
-          )}
+          <input
+            className={twMerge(
+              "bg-transparent",
+              "h-full",
+              "text-2xl",
+              "text-right",
+              "text-white",
+              "top-0",
+              "w-full",
+              "focus:outline-none",
+              typeof props.onChangeAmount === "function"
+                ? "cursor-pointer"
+                : "cursor-none",
+              typeof props.onChangeAmount === "function"
+                ? "pointer-events-auto"
+                : "pointer-events-none"
+            )}
+            placeholder="0"
+            type="number"
+            value={props.amount || ""}
+            onChange={(e) => {
+              const text = e.currentTarget.value;
+              console.log("text:",text);
+              props.onChangeAmount?.(Number(text)); // on changeing here set in setLpTokenAmt() hook
+            }}
+          />
         </div>
       </div>
     </div>

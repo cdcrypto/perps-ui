@@ -3,12 +3,7 @@ import camelCase from "camelcase";
 import { Layout } from "buffer-layout";
 import * as borsh from "@coral-xyz/borsh";
 import { IdlError } from "@project-serum/anchor";
-import {
-  IdlField,
-  IdlTypeDef,
-  IdlEnumVariant,
-  IdlType,
-} from "@project-serum/anchor/dist/cjs/idl";
+import { IdlField, IdlTypeDef, IdlEnumVariant, IdlType } from "@project-serum/anchor/dist/cjs/idl";
 
 export class IdlCoder {
   public static fieldLayout(

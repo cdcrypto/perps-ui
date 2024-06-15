@@ -1,96 +1,100 @@
-import { CustodyAccount } from "@/lib/CustodyAccount";
-import { PoolAccount } from "@/lib/PoolAccount";
-import { PositionAccount } from "@/lib/PositionAccount";
-import { TokenE } from "@/lib/Token";
+import { getTokenAddress, TokenE } from "@/utils/TokenUtils";
 import {
   getPerpetualProgramAndProvider,
-  PERPETUALS_ADDRESS,
-  TRANSFER_AUTHORITY,
+  perpetualsAddress,
+  POOL_CONFIG,
+  transferAuthorityAddress,
 } from "@/utils/constants";
+import { manualSendTransaction } from "@/utils/manualTransaction";
+import { BN, Wallet } from "@project-serum/anchor";
 import {
-  automaticSendTransaction,
-  manualSendTransaction,
-} from "@/utils/TransactionHandlers";
+  getAssociatedTokenAddress,
+  TOKEN_PROGRAM_ID,
+} from "@solana/spl-token";
 import {
-  createAtaIfNeeded,
-  unwrapSolIfNeeded,
-} from "@/utils/transactionHelpers";
-import { BN } from "@project-serum/anchor";
-import { getAssociatedTokenAddress, TOKEN_PROGRAM_ID } from "@solana/spl-token";
-import { WalletContextState } from "@solana/wallet-adapter-react";
-import { Connection, TransactionInstruction } from "@solana/web3.js";
+  Connection,
+  PublicKey,
+  Transaction,
+} from "@solana/web3.js";
+import { isVariant, Side } from "../types";
 
 export async function closePosition(
-  walletContextState: WalletContextState,
+  wallet: Wallet,
+  publicKey: PublicKey,
+  signTransaction : any ,
   connection: Connection,
-  pool: PoolAccount,
-  position: PositionAccount,
-  custody: CustodyAccount,
+  payToken: TokenE,
+  positionToken: TokenE,
+  positionAccountAddress: String,
+  side: Side,
   price: BN
 ) {
-  let { perpetual_program } = await getPerpetualProgramAndProvider(
-    walletContextState
-  );
-  let publicKey = walletContextState.publicKey!;
+
+  let { perpetual_program } = await getPerpetualProgramAndProvider(wallet);
+  console.log("side , isLong:", side , isVariant(side, 'long'));
 
   // TODO: need to take slippage as param , this is now for testing
   const adjustedPrice =
-    position.side.toString() == "Long"
-      ? price.mul(new BN(50)).div(new BN(100))
-      : price.mul(new BN(150)).div(new BN(100));
+   isVariant(side, 'long')
+      ? price.mul(new BN(95)).div(new BN(100))
+      : price.mul(new BN(105)).div(new BN(100))
+  console.log(
+    "adjustedPrice, coingeckoPrice:",
+    adjustedPrice.toString(),
+    price.toString()
+  );
+
+  const poolTokenCustody = POOL_CONFIG.custodies.find(i => i.mintKey.toBase58()=== getTokenAddress(payToken));
+  if(!poolTokenCustody){
+    throw "poolTokenCustody  not found";
+  }
 
   let userCustodyTokenAccount = await getAssociatedTokenAddress(
-    custody.mint,
+    poolTokenCustody.mintKey,
     publicKey
   );
+  console.log("tokens", payToken, positionToken);
 
-  let preInstructions: TransactionInstruction[] = [];
-
-  let ataIx = await createAtaIfNeeded(
-    publicKey,
-    publicKey,
-    custody.mint,
-    connection
-  );
-
-  if (ataIx) preInstructions.push(ataIx);
-
-  let postInstructions: TransactionInstruction[] = [];
-  let unwrapTx = await unwrapSolIfNeeded(publicKey, publicKey, connection);
-  if (unwrapTx) postInstructions.push(...unwrapTx);
-
-  let methodBuilder = await perpetual_program.methods
-    .closePosition({
-      price: adjustedPrice,
-    })
-    .accounts({
-      owner: publicKey,
-      receivingAccount: userCustodyTokenAccount,
-      transferAuthority: TRANSFER_AUTHORITY,
-      perpetuals: PERPETUALS_ADDRESS,
-      pool: pool.address,
-      position: position.address,
-      custody: custody.address,
-      custodyOracleAccount: custody.oracle.oracleAccount,
-      custodyTokenAccount: custody.tokenAccount,
-      tokenProgram: TOKEN_PROGRAM_ID,
-    })
-    .preInstructions(preInstructions);
-
-  if (position.token == TokenE.SOL)
-    methodBuilder = methodBuilder.postInstructions(postInstructions);
+  let transaction = new Transaction();
 
   try {
-    // await automaticSendTransaction(
-    //   methodBuilder,
-    //   perpetual_program.provider.connection
-    // );
-    let tx = await methodBuilder.transaction();
+    const positionAccount = new PublicKey(positionAccountAddress);
+    console.log("position account", positionAccount.toString());
+
+    let tx = await perpetual_program.methods
+      .closePosition({
+        price: adjustedPrice,
+      })
+      .accounts({
+        owner: publicKey,
+        receivingAccount: userCustodyTokenAccount,
+        transferAuthority: transferAuthorityAddress,
+        perpetuals: perpetualsAddress,
+        pool: POOL_CONFIG.poolAddress,
+        position: positionAccount,
+        custody: poolTokenCustody.custodyAccount,
+        custodyOracleAccount: poolTokenCustody.oracleAddress,
+        custodyTokenAccount: poolTokenCustody.tokenAccount,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .transaction();
+    transaction = transaction.add(tx);
+
+    console.log("close position tx", transaction);
+    console.log("tx keys");
+    for (let i = 0; i < transaction.instructions[0]!.keys.length; i++) {
+      console.log(
+        "key",
+        i,
+        transaction.instructions[0]!.keys[i]?.pubkey.toString()
+      );
+    }
+
     await manualSendTransaction(
-      tx,
+      transaction,
       publicKey,
       connection,
-      walletContextState.signTransaction
+      signTransaction
     );
   } catch (err) {
     console.log(err);

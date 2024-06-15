@@ -1,243 +1,181 @@
-import { CustodyAccount } from "@/lib/CustodyAccount";
-import { PoolAccount } from "@/lib/PoolAccount";
-import { TokenE } from "@/lib/Token";
-import { Side, TradeSide } from "@/lib/types";
+import { Pool } from "@/lib/PoolAccount";
+
+import { getTokenAddress, TokenE } from "@/utils/TokenUtils";
 import {
-  automaticSendTransaction,
-  manualSendTransaction,
-} from "@/utils/TransactionHandlers";
-import {
-  PERPETUALS_ADDRESS,
-  TRANSFER_AUTHORITY,
   getPerpetualProgramAndProvider,
+  perpetualsAddress,
+  PERPETUALS_PROGRAM_ID,
+  POOL_CONFIG,
+  transferAuthorityAddress,
 } from "@/utils/constants";
-import {
-  createAtaIfNeeded,
-  unwrapSolIfNeeded,
-  wrapSolIfNeeded,
-} from "@/utils/transactionHelpers";
-import { ViewHelper } from "@/utils/viewHelpers";
-import { BN } from "@project-serum/anchor";
+import { manualSendTransaction } from "@/utils/manualTransaction";
+import { PoolConfig } from "@/utils/PoolConfig";
+import { checkIfAccountExists } from "@/utils/retrieveData";
+import { BN, Wallet } from "@project-serum/anchor";
 import { findProgramAddressSync } from "@project-serum/anchor/dist/cjs/utils/pubkey";
-import { TOKEN_PROGRAM_ID, getAssociatedTokenAddress } from "@solana/spl-token";
-import { WalletContextState } from "@solana/wallet-adapter-react";
+import {
+  createAssociatedTokenAccountInstruction,
+  createSyncNativeInstruction,
+  getAssociatedTokenAddress,
+  NATIVE_MINT,
+  TOKEN_PROGRAM_ID,
+} from "@solana/spl-token";
 import {
   Connection,
+  LAMPORTS_PER_SOL,
+  PublicKey,
   SystemProgram,
-  TransactionInstruction,
+  Transaction,
 } from "@solana/web3.js";
-import { swapTransactionBuilder } from "src/actions/swap";
+import { isVariant, Side } from "../types";
 
-export async function openPositionBuilder(
-  walletContextState: WalletContextState,
+export async function openPosition(
+  wallet: Wallet,
+  publicKey: PublicKey,
+  signTransaction : any,
   connection: Connection,
-  pool: PoolAccount,
-  payCustody: CustodyAccount,
-  positionCustody: CustodyAccount,
-  payAmount: number,
-  positionAmount: number,
-  price: number,
-  side: Side,
-  leverage: number
+  payToken: TokenE,
+  positionToken: TokenE,
+  payAmount: BN,
+  positionAmount: BN,
+  price: BN,
+  side: Side
 ) {
-  // console.log("in open position");
-  let { perpetual_program, provider } = await getPerpetualProgramAndProvider(
-    walletContextState
-  );
-  let publicKey = walletContextState.publicKey!;
+  let { perpetual_program } = await getPerpetualProgramAndProvider(wallet);
 
   // TODO: need to take slippage as param , this is now for testing
   const newPrice =
-    side.toString() == "Long"
-      ? new BN((price * 10 ** 6 * 115) / 100)
-      : new BN((price * 10 ** 6 * 90) / 100);
+  isVariant(side, 'long')
+      ? price.mul(new BN(110)).div(new BN(100))
+      : price.mul(new BN(90)).div(new BN(100));
+  console.log(
+    ">> openPosition inputs",
+    Number(payAmount),
+    Number(positionAmount),
+    Number(price),
+    Number(newPrice),
+    payToken,
+    side,
+    isVariant(side, 'long'),
+  );
+
+  const payTokenCustody = POOL_CONFIG.custodies.find(i => i.mintKey.toBase58()=== getTokenAddress(payToken));
+  if(!payTokenCustody){
+    throw "poolTokenCustody  not found";
+  }
+  console.log("payTokenCustody:",payTokenCustody)
 
   let userCustodyTokenAccount = await getAssociatedTokenAddress(
-    positionCustody.mint,
+    new PublicKey(getTokenAddress(payToken)),
     publicKey
   );
 
+  // check if usercustodytoken account exists
+  if (!(await checkIfAccountExists(userCustodyTokenAccount, connection))) {
+    console.log("user custody token account does not exist");
+  }
+
+  console.log("tokens", payToken, positionToken);
   let positionAccount = findProgramAddressSync(
     [
-      Buffer.from("position"),
+      Buffer.from("position") ,
       publicKey.toBuffer(),
-      pool.address.toBuffer(),
-      positionCustody.address.toBuffer(),
-      // @ts-ignore
-      side.toString() == "Long" ? [1] : [2],
+      POOL_CONFIG.poolAddress.toBuffer(),
+      payTokenCustody.custodyAccount.toBuffer(),
+      isVariant(side, 'long') ?  Buffer.from([1]) :  Buffer.from([2]), // in base58 1=2 , 2=3 
     ],
     perpetual_program.programId
   )[0];
 
-  let preInstructions: TransactionInstruction[] = [];
+ 
 
-  let finalPayAmount = positionAmount / leverage;
-
-  if (payCustody.getTokenE() != positionCustody.getTokenE()) {
-    console.log("first swapping in open pos");
-    const View = new ViewHelper(connection, provider);
-    let swapInfo = await View.getSwapAmountAndFees(
-      payAmount,
-      pool!,
-      payCustody,
-      positionCustody
-    );
-
-    let swapAmountOut =
-      Number(swapInfo.amountOut) / 10 ** positionCustody.decimals;
-
-    let swapFee = Number(swapInfo.feeOut) / 10 ** positionCustody.decimals;
-
-    let recAmt = swapAmountOut - swapFee;
-
-    console.log("rec amt in swap builder", recAmt, swapAmountOut, swapFee);
-
-    let getEntryPrice = await View.getEntryPriceAndFee(
-      recAmt,
-      positionAmount,
-      side,
-      pool!,
-      positionCustody!
-    );
-
-    let entryFee = Number(getEntryPrice.fee) / 10 ** positionCustody.decimals;
-
-    console.log("entry fee in swap builder", entryFee);
-
-    let swapInfo2 = await View.getSwapAmountAndFees(
-      payAmount + entryFee + swapFee,
-      pool!,
-      payCustody,
-      positionCustody
-    );
-
-    let swapAmountOut2 =
-      Number(swapInfo2.amountOut) / 10 ** positionCustody.decimals -
-      Number(swapInfo2.feeOut) / 10 ** positionCustody.decimals -
-      entryFee;
-
-    let extraSwap = 0;
-
-    if (swapAmountOut2 < finalPayAmount) {
-      let difference = (finalPayAmount - swapAmountOut2) / swapAmountOut2;
-      extraSwap = difference * (payAmount + entryFee + swapFee);
-    }
-
-    let { methodBuilder: swapBuilder, preInstructions: swapPreInstructions } =
-      await swapTransactionBuilder(
-        walletContextState,
-        connection,
-        pool,
-        payCustody.getTokenE(),
-        positionCustody.getTokenE(),
-        payAmount + entryFee + swapFee + extraSwap,
-        recAmt
-      );
-
-    let ix = await swapBuilder.instruction();
-    preInstructions.push(...swapPreInstructions, ix);
-  }
-
-  if (
-    preInstructions.length == 0 &&
-    positionCustody.getTokenE() == TokenE.SOL
-  ) {
-    let ataIx = await createAtaIfNeeded(
-      publicKey,
-      publicKey,
-      positionCustody.mint,
-      connection
-    );
-
-    if (ataIx) preInstructions.push(ataIx);
-
-    let wrapInstructions = await wrapSolIfNeeded(
-      publicKey,
-      publicKey,
-      connection,
-      payAmount
-    );
-    if (wrapInstructions) {
-      preInstructions.push(...wrapInstructions);
-    }
-  }
-
-  let postInstructions: TransactionInstruction[] = [];
-  let unwrapTx = await unwrapSolIfNeeded(publicKey, publicKey, connection);
-  if (unwrapTx) postInstructions.push(...unwrapTx);
-
-  const params: any = {
-    price: newPrice,
-    collateral: new BN(finalPayAmount * 10 ** positionCustody.decimals),
-    size: new BN(positionAmount * 10 ** positionCustody.decimals),
-    side: side.toString() == "Long" ? TradeSide.Long : TradeSide.Short,
-  };
-
-  let methodBuilder = perpetual_program.methods.openPosition(params).accounts({
-    owner: publicKey,
-    fundingAccount: userCustodyTokenAccount,
-    transferAuthority: TRANSFER_AUTHORITY,
-    perpetuals: PERPETUALS_ADDRESS,
-    pool: pool.address,
-    position: positionAccount,
-    custody: positionCustody.address,
-    custodyOracleAccount: positionCustody.oracle.oracleAccount,
-    custodyTokenAccount: positionCustody.tokenAccount,
-    systemProgram: SystemProgram.programId,
-    tokenProgram: TOKEN_PROGRAM_ID,
-  });
-
-  if (preInstructions) {
-    methodBuilder = methodBuilder.preInstructions(preInstructions);
-  }
-
-  if (
-    payCustody.getTokenE() == TokenE.SOL ||
-    positionCustody.getTokenE() == TokenE.SOL
-  ) {
-    methodBuilder = methodBuilder.postInstructions(postInstructions);
-  }
+  let transaction = new Transaction();
 
   try {
-    // await automaticSendTransaction(methodBuilder, connection);
-    let tx = await methodBuilder.transaction();
+    // wrap sol if needed
+    if (payToken == TokenE.SOL) {
+      console.log("pay token name is sol", payToken);
+
+      const associatedTokenAccount = await getAssociatedTokenAddress(
+        NATIVE_MINT,
+        publicKey
+      );
+
+      if (!(await checkIfAccountExists(associatedTokenAccount, connection))) {
+        console.log("sol ata does not exist", NATIVE_MINT.toString());
+
+        transaction = transaction.add(
+          createAssociatedTokenAccountInstruction(
+            publicKey,
+            associatedTokenAccount,
+            publicKey,
+            NATIVE_MINT
+          )
+        );
+      }
+
+      // get balance of associated token account
+      console.log("sol ata exists");
+      const balance = await connection.getBalance(associatedTokenAccount);
+      if (balance < payAmount.toNumber()) {
+        console.log("balance insufficient");
+        transaction = transaction.add(
+          SystemProgram.transfer({
+            fromPubkey: publicKey,
+            toPubkey: associatedTokenAccount,
+            lamports: LAMPORTS_PER_SOL,
+          }),
+          createSyncNativeInstruction(associatedTokenAccount)
+        );
+      }
+    }
+
+    console.log("position account", positionAccount.toString());
+
+    const params: any = {
+      price: newPrice,
+      collateral: payAmount,
+      size: positionAmount,
+      side: side,
+    };
+    let tx = await perpetual_program.methods
+      .openPosition(params)
+      .accounts({
+        owner: publicKey,
+        fundingAccount: userCustodyTokenAccount,
+        transferAuthority: transferAuthorityAddress,
+        perpetuals: perpetualsAddress,
+        pool: POOL_CONFIG.poolAddress,
+        position: positionAccount,
+        custody: payTokenCustody.custodyAccount,
+        custodyOracleAccount:
+        payTokenCustody.oracleAddress,
+        custodyTokenAccount:
+        payTokenCustody.tokenAccount,
+        systemProgram: SystemProgram.programId,
+        tokenProgram: TOKEN_PROGRAM_ID,
+      })
+      .transaction();
+    transaction = transaction.add(tx);
+
+    console.log("open position tx", transaction);
+    // console.log("tx keys");
+    // for (let i = 0; i < transaction.instructions[0].keys.length; i++) {
+    //   console.log(
+    //     "key",
+    //     i,
+    //     transaction.instructions[0].keys[i]?.pubkey.toString()
+    //   );
+    // }
+
     await manualSendTransaction(
-      tx,
+      transaction,
       publicKey,
       connection,
-      walletContextState.signTransaction
+      signTransaction
     );
   } catch (err) {
     console.log(err);
     throw err;
   }
-}
-
-export async function openPosition(
-  walletContextState: WalletContextState,
-  connection: Connection,
-  pool: PoolAccount,
-  payToken: TokenE,
-  positionToken: TokenE,
-  payAmount: number,
-  positionAmount: number,
-  price: number,
-  side: Side,
-  leverage: number
-) {
-  let payCustody = pool.getCustodyAccount(payToken)!;
-  let positionCustody = pool.getCustodyAccount(positionToken)!;
-
-  await openPositionBuilder(
-    walletContextState,
-    connection,
-    pool,
-    payCustody,
-    positionCustody,
-    payAmount,
-    positionAmount,
-    price,
-    side,
-    leverage
-  );
 }

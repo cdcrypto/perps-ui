@@ -1,18 +1,25 @@
-import { SidebarTab } from "@/components/SidebarTab";
-import { TradePosition } from "@/components/TradeSidebar/TradePosition";
-import { TradeSwap } from "@/components/TradeSidebar/TradeSwap";
-import { Side } from "@/lib/types";
-import ArrowsHorizontalIcon from "@carbon/icons-react/lib/ArrowsHorizontal";
-import GrowthIcon from "@carbon/icons-react/lib/Growth";
-import { useState } from "react";
 import { twMerge } from "tailwind-merge";
+import { useState } from "react";
+import GrowthIcon from "@carbon/icons-react/lib/Growth";
+import ArrowsHorizontalIcon from "@carbon/icons-react/lib/ArrowsHorizontal";
+
+import { SidebarTab } from "../SidebarTab";
+import { TradeSwap } from "@/components/TradeSidebar/TradeSwap";
+import { TradePosition } from "./TradePosition";
+import { Side } from "@/types/index";
+
+export enum Tab {
+  Long = "Long",
+  Short = "Short",
+  Swap = "Swap",
+}
 
 interface Props {
   className?: string;
 }
 
 export function TradeSidebar(props: Props) {
-  const [side, setSide] = useState(Side.Long);
+  const [tab, setTab] = useState(Tab.Long);
 
   return (
     <div className={props.className}>
@@ -22,34 +29,32 @@ export function TradeSidebar(props: Props) {
       >
         <div className="grid grid-cols-3 gap-x-1 rounded bg-black p-1">
           <SidebarTab
-            selected={side === Side.Long}
-            onClick={() => setSide(Side.Long)}
+            selected={tab === Tab.Long}
+            onClick={() => setTab(Tab.Long)}
           >
             <GrowthIcon className="h-4 w-4" />
             <div>Long</div>
           </SidebarTab>
           <SidebarTab
-            selected={side === Side.Short}
-            onClick={() => setSide(Side.Short)}
+            selected={tab === Tab.Short}
+            onClick={() => setTab(Tab.Short)}
           >
             <GrowthIcon className="h-4 w-4 -scale-y-100" />
             <div>Short</div>
           </SidebarTab>
           <SidebarTab
-            selected={side === Side.Swap}
-            onClick={() => setSide(Side.Swap)}
+            selected={tab === Tab.Swap}
+            onClick={() => setTab(Tab.Swap)}
           >
             <ArrowsHorizontalIcon className="h-4 w-4" />
             <div>Swap</div>
           </SidebarTab>
         </div>
-        {side === Side.Long && (
-          <TradePosition className="mt-6" side={Side.Long} />
-        )}
-        {side === Side.Short && (
+        {tab === Tab.Long && <TradePosition className="mt-6" side={Side.Long} />}
+        {tab === Tab.Short && (
           <TradePosition className="mt-6" side={Side.Short} />
         )}
-        {side === Side.Swap && <TradeSwap className="mt-6" />}
+        {tab === Tab.Swap && <TradeSwap className="mt-6" />}
       </div>
     </div>
   );

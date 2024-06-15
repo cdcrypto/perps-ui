@@ -1,89 +1,150 @@
-import { CustodyAccount } from "@/lib/CustodyAccount";
-import { TokenE } from "@/lib/Token";
-import { Position, Side } from "@/lib/types";
+import { POOL_CONFIG } from "@/utils/constants";
+import { CustodyConfig } from "@/utils/PoolConfig";
 import { BN } from "@project-serum/anchor";
-import { PublicKey } from "@solana/web3.js";
+import { Connection, PublicKey } from "@solana/web3.js";
+import { isVariant, Position, Side } from "../types";
+import { ViewHelper } from "../viewHelpers";
+
+
+// export interface PositionDisplayData {
+
+//   publicKey: PublicKey,
+
+//   owner: PublicKey,
+//   pool: PublicKey,
+//   custody: PublicKey,
+//   // lockCustody: PublicKey,
+
+//   openTime: BN,
+//   updateTime: BN,
+
+//   side: Side,
+//   price: BN,
+//   sizeUsd: BN,
+//   collateralUsd: BN,
+//   unrealizedProfitUsd: BN,
+//   unrealizedLossUsd: BN,
+//   cumulativeInterestSnapshot: BN,
+//   lockedAmount: BN,
+//   collateralAmount: BN,
+  
+//   // variable data
+//   liquidationPriceUsd : BN,
+//   pnlUsd : BN, 
+
+// }
 
 export class PositionAccount {
-  public owner: PublicKey;
-  public pool: PublicKey;
-  public custody: PublicKey;
-  public lockCustody: PublicKey;
 
-  public openTime: BN;
-  public updateTime: BN;
+  static async from(
+    View : ViewHelper,
+    publicKey: PublicKey,
+    obj: {
+      owner: PublicKey,
+      pool: PublicKey,
+      custody: PublicKey,
+      // lockCustody: PublicKey,
+      openTime: BN,
+      updateTime: BN,
+      side: Side,
+      price: BN,
+      sizeUsd: BN,
+      collateralUsd: BN,
+      unrealizedProfitUsd: BN,
+      unrealizedLossUsd: BN,
+      cumulativeInterestSnapshot: BN,
+      lockedAmount: BN,
+      collateralAmount: BN,
+    },
+  ): Promise<PositionAccount> {
 
-  public side: Side;
-  public price: BN;
-  public sizeUsd: BN;
-  public collateralUsd: BN;
-  public unrealizedProfitUsd: BN;
-  public unrealizedLossUsd: BN;
-  public cumulativeInterestSnapshot: BN;
-  public lockedAmount: BN;
-  public collateralAmount: BN;
+    // console.log("PositionAccount from:",obj , obj.side , isVariant(obj.side, 'long') , isVariant(obj.side, 'short'))
+    
+    const custodyConfig  =  POOL_CONFIG.custodies.find(i => i.custodyAccount.toBase58() == obj.custody.toBase58());
+    let liquidationPriceUsd = await this.getLiquidationPrice(View, obj.pool,obj.custody, publicKey);
+    let pnlUsd = await this.getPnl(View, obj.pool,obj.custody, publicKey);
+    const leverage = Number(obj.sizeUsd.div(obj.collateralUsd).toNumber().toFixed(2))
 
-  public token: TokenE;
-  public address: PublicKey;
-  public oracleAccount: PublicKey;
+    return new PositionAccount(
+      publicKey,
+      obj.owner,
+      obj.pool,
+      obj.custody,
+      // obj.lockCustody,
+      obj.openTime,
+      obj.updateTime,
+
+      obj.side,
+      obj.price,
+      obj.sizeUsd,
+      obj.collateralUsd,
+      obj.unrealizedProfitUsd,
+      obj.unrealizedLossUsd,
+      obj.cumulativeInterestSnapshot,
+      obj.lockedAmount,
+      obj.collateralAmount,
+      // display
+      custodyConfig!,
+      // variable data
+     liquidationPriceUsd,
+      pnlUsd,
+      leverage
+    );
+  }
 
   constructor(
-    position: Position,
-    address: PublicKey,
-    custodies: Record<string, CustodyAccount>
+    public publicKey: PublicKey,
+    public owner: PublicKey,
+    public pool: PublicKey,
+    public custody: PublicKey,
+    //public  lockCustody: PublicKey,
+
+    public openTime: BN,
+    public updateTime: BN,
+
+    public side: Side,
+    public price: BN,
+    public sizeUsd: BN,
+    public collateralUsd: BN,
+    public unrealizedProfitUsd: BN,
+    public unrealizedLossUsd: BN,
+    public cumulativeInterestSnapshot: BN,
+    public lockedAmount: BN,
+    public collateralAmount: BN,
+    // extra 
+    public custodyConfig : CustodyConfig,
+    // dyanmic data
+    public liquidationPriceUsd : BN,
+    public pnlUsd : BN, 
+    public leverage :number,
   ) {
-    // console.log("printing entier new consturcture", position.openTime);
-    this.owner = position.owner;
-    this.pool = position.pool;
-    this.custody = position.custody;
-    this.lockCustody = position.lockCustody;
-
-    this.openTime = position.openTime;
-    this.updateTime = position.updateTime;
-
-    this.side = position.side.hasOwnProperty("long") ? Side.Long : Side.Short;
-    this.price = position.price;
-    this.sizeUsd = position.sizeUsd;
-    this.collateralUsd = position.collateralUsd;
-    this.unrealizedProfitUsd = position.unrealizedProfitUsd;
-    this.unrealizedLossUsd = position.unrealizedLossUsd;
-    this.cumulativeInterestSnapshot = position.cumulativeInterestSnapshot;
-    this.lockedAmount = position.lockedAmount;
-    this.collateralAmount = position.collateralAmount;
-
-    this.token = custodies[this.custody.toString()]?.getTokenE()!;
-    this.address = address;
-    this.oracleAccount =
-      custodies[this.custody.toString()]?.oracle.oracleAccount!;
   }
 
-  // TODO update leverage with pnl?
-  getLeverage(): number {
-    return this.sizeUsd.toNumber() / this.collateralUsd.toNumber();
+  updatePositionData(position: Position) {
+    Object.assign(this, { ...position })
   }
 
-  // TODO fix getTimestamp to proper date
-  getTimestamp(): string {
-    const date = new Date(Number(this.openTime) * 1000);
-    const dateString = date.toLocaleString();
-
-    return dateString;
+  static async getLiquidationPrice(View : ViewHelper,  poolKey: PublicKey, custodyKey: PublicKey, position: PublicKey) {
+   
+    try {
+      return await View.getLiquidationPrice( poolKey , custodyKey, position);
+    } catch (error) {
+       return new BN(0);
+    }
   }
 
-  getCollateralUsd(): number {
-    return Number(this.collateralUsd) / 10 ** 6;
+  static async getPnl(View : ViewHelper, poolKey: PublicKey, custodyKey: PublicKey, position: PublicKey) {
+    try {
+      const x = await View.getPnl(poolKey , custodyKey, position);
+      if(x.profit){
+        return x.profit;
+      } else {
+        return x.loss.mul(new BN(-1));
+      }
+    } catch (error) {
+       return new BN(0);
+      
+    }
   }
 
-  getPrice(): number {
-    return Number(this.price) / 10 ** 6;
-  }
-
-  getSizeUsd(): number {
-    return Number(this.sizeUsd) / 10 ** 6;
-  }
-
-  getNetValue(pnl: number): number {
-    // return this.getSizeUsd() - this.getCollateralUsd();
-    return Number(this.getCollateralUsd()) + pnl;
-  }
 }
